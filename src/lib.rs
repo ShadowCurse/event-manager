@@ -9,11 +9,17 @@ use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use vmm_sys_util::epoll::EventSet;
 
 /// The function thats runs when an event occurs.
-type Action = Box<dyn Fn(&mut EventManager, EventSet)>;
+type Action = Box<dyn FnMut(&mut EventManager, EventSet)>;
 
 fn errno() -> i32 {
     // SAFETY: Always safe.
     unsafe { *libc::__errno_location() }
+}
+
+/// Trait to register object with event manager
+pub trait RegisterEvents {
+    /// Register
+    fn register(&mut self, event_manager: &mut BufferedEventManager);
 }
 
 /// Evenet manager with internal buffer to avoid manual handling.
@@ -217,10 +223,13 @@ impl EventManager {
                     let event = buffer[i];
                     // For all events which can fire there exists an entry within `self.events` thus
                     // it is safe to unwrap here.
-                    let f: *const dyn Fn(&mut EventManager, EventSet) = self
+                    // let f: *const dyn FnMut(&mut EventManager, EventSet) = self
+                    let f = self
                         .events
                         .get(&i32::try_from(event.u64).unwrap_unchecked())
                         .unwrap_unchecked();
+                    let f: *mut dyn FnMut(&mut EventManager, EventSet) =
+                        std::mem::transmute(f.as_ref());
                     (*f)(self, EventSet::from_bits_unchecked(event.events));
                 }
                 Ok(n)
